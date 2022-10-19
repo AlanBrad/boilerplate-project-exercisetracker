@@ -1,10 +1,12 @@
-const express = require('express')
-const app = express()
-const cors = require('cors')
-require('dotenv').config()
+require('dotenv').config();
+const source = process.env.MONGODB_URI;
+const express = require('express');
+const app = express();
+const cors = require('cors');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
+
 
 /** Constants */
 const ID_LENGTH = 24;
@@ -43,7 +45,7 @@ const user     = mongoose.model("user",     userSchema);
 const exercise = mongoose.model("exercise", exerciseSchema);
 
 /** Connect to database */
-mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+mongoose.connect(source, { useNewUrlParser: true, useUnifiedTopology: true });
 // const connection = mongoose.connection;connection.once("open", function() {
 //   console.log("*** MongoDB got connected ***");
 //   console.log(`Our Current Database Name : ${connection.db.databaseName}`);
