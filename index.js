@@ -35,8 +35,7 @@ const exerciseSchema = new Schema({
   duration:    { type: Number, required: true,
                  min:  [1, 'Must be at least 1 minute long']
                },
-  date:        { type: Date, default: Date.now,
-                 required: true
+  date:        { type: Number, required: true
                }
 }, { autoIndex: false });
 
@@ -136,40 +135,45 @@ app.get('/api/users/:_id/logs', async (req, res) => {
                });
     }
     const username = userFind.username;
-    let arrExercises = [];
+    let arrExercises = [], fromN = 0, toN = 0;
     if ((req.query.from) || (req.query.to) || (req.query.limit)) {
       let { from, to, limit } = req.query;
       if (from) {
         if (!isValidDate(from)) {
           return res.json({ error: `Invalid 'from' date - ${from}`})
         }
-        from = new Date(from);
+        fromN = Number(from.replace(/-/g, ''));
       }
       else {
-        from = new Date('1847-12-31');
+        fromN = 18471231;
       }
-      from = from.getTime();
+      // from = from.getTime();
+      // from = new Date(new Date(new Date(from).toISOString()).setHours(0, 0, 0, 0));
       if (to) {
         if (!isValidDate(to)) {
           return res.json({ error: `Invalid 'to' date - ${to}`})
         }
-        to = new Date(to);
+        toN = Number(to.replace(/-/g, ''));
       }
       else {
-        to = new Date('2999-12-31');
+        toN = 99991231;
       }
-      to = to.getTime();
-      exercise.find({ userid: userid, date: { $gte: from, $lte: to } })
+      // to = to.getTime();
+      // to = new Date(new Date(new Date(to).toISOString()).setHours(0, 0, 0, 0));
+      exercise.find({ userid: userid, date: { $gte: fromN, $lte: toN } })
               .limit(parseInt(req.query.limit) || null)
               .exec((err, data) => {
                 if (err) {
                   res.json({error: err})
                 }
                 for (let i = 0; i < data.length; i++) {
+                  let dd = data.date.toString();
+                  dd = dd.substring(0,4)+'-'+dd.substring(4,2)+'-'+dd.substring(6,2);
+                  dd = new Date(dd).toDateString();
                   arrExercises.push({
                     'description': data[i].description,
                     'duration':    data[i].duration,
-                    'date':        data[i].date.toDateString()
+                    'date':        dd
                   })
                 }
                 res.json({ 'username': username,
@@ -246,7 +250,10 @@ app.post('/api/users/:_id/exercises', async function(req, res) {
       return res.json({ error: `${date} is not a valid date - must be in format yyyy-mm-dd`})
     }
   }
-  const passedDate = (date) ? new Date(date) : new Date();
+  const passedDate = Number((date) 
+                            ? date.replace(/-/g, '')
+                            : new Date().toISOString().substring(0, 10).replace(/-/g, '')
+                           );
   const newExercise = new exercise({userid: id,
                                     description: description,
                                     duration: duration,
@@ -289,17 +296,21 @@ app.post('/api/users/:_id/exercises', async function(req, res) {
             else {
               if (exercises === null) { //not found
                 //add
-                newExercise.date = newExercise.date.getTime();
+                // newExercise.date = newExercise.date.getTime();
+                // newExercise.date = new Date(new Date(new Date(newExercise.date).toISOString()).setHours(0, 0, 0, 0));
                 newExercise.save(function(err, data) {
                   if (err) {
                     res.json({ error : err });
                   }
                   else {
                     //display
+                    let d = data.date.toString();
+                    d = d.substring(0,4)+'-'+d.substring(4,2)+'-'+d.substring(6,2);
+                    d = new Date(d).toDateString();
                     res.json({ username   : username,
                                description: description,
                                duration   : data.duration,
-                               date       : data.date.toDateString(),
+                               date       : d,
                                _id        : id
                              });
                   }
