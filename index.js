@@ -58,20 +58,6 @@ app.use(bodyParser.urlencoded({extended: false}))
 app.use(express.json())
 app.use(cors())
 app.use(express.static('public'))
-app.get('/', async (req, res) => {
-  res.sendFile(__dirname + '/views/index.html')
-  await user.syncIndexes();
-  await exercise.syncIndexes();
-// deleteUsers();
-// deleteExercises();
-// const users = await user.estimatedDocumentCount();
-// console.log(`users:${users}:`);
-// const exercises = await exercise.estimatedDocumentCount();
-// console.log(`exercises:${exercises}:`);
-// const exerciseList = await exercise.find()
-//          .then(function(recs) { return recs });
-// console.log(`exerciseList:${exerciseList}:`);
-});
 
 /** Functions */
 function isValidDate(dateString) {
@@ -104,35 +90,56 @@ const deleteExercises = async () => {
 }
 
 /** Process routes */
+app.get('/', async (req, res) => {
+  res.sendFile(__dirname + '/views/index.html')
+  await user.syncIndexes();
+  await exercise.syncIndexes();
+// deleteUsers();
+// deleteExercises();
+// const users = await user.estimatedDocumentCount();
+// console.log(`users:${users}:`);
+// const exercises = await exercise.estimatedDocumentCount();
+// console.log(`exercises:${exercises}:`);
+// const exerciseList = await exercise.find()
+//          .then(function(recs) { return recs });
+// console.log(`exerciseList:${exerciseList}:`);
+});
+
 app.get('/api/users', (req, res) => {
   user.find({}, 'username _id')
-    .then(function(recs) {
-            if (recs.length === 0) {
-              res.json({ error: 'no users in database!' });
-            }
-            else {
-                const arr = [];
-                for(let i in recs) {
-                  const o = { username: recs[i].username,
-                             _id: recs[i]._id };
-                  arr.push(o);
-                }
-                res.json(arr);
-            }
-        })
+      .exec((err, recs) => {
+        if (err) {
+          return res.json({error: err})
+        }
+        if (recs.length === 0) {
+          return res.json({ users: 'no users in database!' });
+        }
+        const arr = [];
+        for (let i in recs) {
+          arr.push({ username: recs[i].username,
+                     _id:      recs[i]._id });
+        }
+        res.json(arr);
+    })
 });
 
 app.get('/api/users/:_id/logs', async (req, res) => {
+//console.log(`get:req.body: ${JSON.stringify(req.body)}`);
+//console.log(`get:req.params: ${JSON.stringify(req.params)}`);
+//console.log(`get:req.query: ${JSON.stringify(req.query)}`);
   try {
     if (!req.params._id) {
-      res.json({ error: "Invalid id" });
+      return res.json({ error: "Invalid id" });
     }
     const userid = req.params._id;
+    if (userid.length !== ID_LENGTH) {
+      return res.json({ ':_id': `  Must be ${ID_LENGTH} characters long - you entered '${userid}'  ` });
+    }
     const userFind = await user.findOne({ _id: userid });
     if (!userFind) {
-      res.json({ error: 'user is not in database!',
-                 id:    userid
-               });
+      return res.json({ error: 'user is not in database!',
+                        id:    userid
+                      });
     }
     const username = userFind.username;
     let arrExercises = [], fromN = 0, toN = 0;
@@ -140,15 +147,13 @@ app.get('/api/users/:_id/logs', async (req, res) => {
       let { from, to, limit } = req.query;
       if (from) {
         if (!isValidDate(from)) {
-          return res.json({ error: `Invalid 'from' date - ${from}`})
+          return res.json({ error: `Invalid 'from' date - ${from}`});
         }
         fromN = Number(from.replace(/-/g, ''));
       }
       else {
         fromN = 18471231;
       }
-      // from = from.getTime();
-      // from = new Date(new Date(new Date(from).toISOString()).setHours(0, 0, 0, 0));
       if (to) {
         if (!isValidDate(to)) {
           return res.json({ error: `Invalid 'to' date - ${to}`})
@@ -158,27 +163,53 @@ app.get('/api/users/:_id/logs', async (req, res) => {
       else {
         toN = 99991231;
       }
-      // to = to.getTime();
-      // to = new Date(new Date(new Date(to).toISOString()).setHours(0, 0, 0, 0));
-      exercise.find({ userid: userid, date: { $gte: fromN, $lte: toN } })
-              .limit(parseInt(req.query.limit) || null)
+      if (limit) {
+        if ( isNaN(limit) ) {
+          return res.json({ error: `Invalid limit 1 - ${limit}`})
+        }
+        if ( limit < 1 ) {
+          return res.json({ error: `Invalid limit 2 - ${limit}`})
+        }
+        limit = +limit;
+        if ( Number.isInteger(limit) === false ) {
+          return res.json({ error: `Invalid limit 3 - ${limit}`})
+        }
+      }
+      else {
+        limit = Number.MAX_SAFE_INTEGER;
+      }
+      exercise.find({ userid:userid, date:{ $gte: fromN, $lte: toN } })
+              .limit(limit)
               .exec((err, data) => {
                 if (err) {
-                  res.json({error: err})
+                  return res.json({error: err})
+                }
+                if (data.length === 0) {
+                  return res.json({ _id:      userid,
+                                    username: username,
+                                    from:     new Date(from).toDateString(),
+                                    to:       new Date(to).toDateString(),
+                                    count:    0,
+                                    log:      []
+                         });
                 }
                 for (let i = 0; i < data.length; i++) {
-                  let dd = data.date.toString();
-                  dd = dd.substring(0,4)+'-'+dd.substring(4,2)+'-'+dd.substring(6,2);
+                  //turn data[i].date into formatted string
+                  //eg data[i].date of 20221022 gives
+                  //   dd of Fri Oct 22 2202
+                  let dd = data[i].date.toString();
+                  dd = dd.substring(0, 4) + '-' +
+                       dd.substring(4, 6) + '-' +
+                       dd.substring(6, 9);
                   dd = new Date(dd).toDateString();
-                  arrExercises.push({
-                    'description': data[i].description,
-                    'duration':    data[i].duration,
-                    'date':        dd
-                  })
+                  arrExercises.push({ 'description':data[i].description,
+                                      'duration':   data[i].duration,
+                                      'date':       dd
+                                    })
                 }
-                res.json({ 'username': username,
+                res.json({ '_id':      userid,
+                           'username': username,
                            'count':    arrExercises.length,
-                           '_id':      userid,
                            'log':      arrExercises
                          });
               })
@@ -187,19 +218,32 @@ app.get('/api/users/:_id/logs', async (req, res) => {
       exercise.find({ userid: userid })
               .exec((err, data) => {
                 if (err) {
-                  res.json({error: err})
+                  return res.json({error: err})
+                }
+                if (data.length === 0) {
+                  return res.json({ error: 'no exercises for this user in database!',
+                                    username: username,
+                                    _id: userid
+                                  });
                 }
                 for (let i = 0; i < data.length; i++) {
-                  arrExercises.push({
-                    'description': data[i].description,
-                    'duration':    data[i].duration,
-                    'date':        data[i].date.toDateString()
+                  //turn data[i].date into formatted string
+                  //eg data[i].date of 20221022 gives
+                  //   dd of Fri Oct 22 2202
+                  let dd = data[i].date.toString();
+                  dd = dd.substring(0,4)+'-'+
+                       dd.substring(4,6)+'-'+
+                       dd.substring(6,9);
+                  dd = new Date(dd).toDateString();
+                  arrExercises.push({ description: data[i].description,
+                                      duration:    data[i].duration,
+                                      date:        dd
                   });
                 }
-                res.json({ 'username': username,
-                           'count':    arrExercises.length,
-                           '_id':      userid,
-                           'log':      arrExercises
+                res.json({ _id:      userid,
+                           username: username,
+                           count:    arrExercises.length,
+                           log:      arrExercises
                          });
               })
     }
@@ -214,35 +258,38 @@ app.post('/api/users', async function(req, res) {
   const newUser = new user({username: passedUsername});
   const error = newUser.validateSync();
   if (error) {
-    res.json({ error: error.errors.username.message });
+    return res.json({ error: error.errors.username.message });
+  }
+  //Check if not in database
+  async function getRec(usernameArg) {
+    return await user.findOne({username: usernameArg})
+            .then(function(recs) { return recs });
+  }
+  const userFind = await getRec(passedUsername);
+  if (userFind === null) { //not in database
+    //add
+    newUser.save(function(err, data) {
+      if (err) {
+        return console.error(err);
+      }
+      //display
+      res.json({ username : passedUsername,
+                 _id      : data._id
+               });
+    });
   }
   else {
-    //Check if not in database
-    async function getRec(usernameArg) {
-      return await user.findOne({username: usernameArg})
-              .then(function(recs) { return recs });
-    }
-    const userFind = await getRec(passedUsername);
-    if (userFind === null) { //not in database
-      //add
-      newUser.save(function(err, data) {
-        if (err) return console.error(err);
-        //display
-        res.json({ username : passedUsername,
-                   _id      : data._id
-                 });
-      });
-    }
-    else {
-      res.json({ '':'Already in the database',
-                username : passedUsername,
-                _id      : userFind._id
-               });
-    }
+    res.json({ '':'Already in the database',
+              username : passedUsername,
+              _id      : userFind._id
+             });
   }
 });
 
 app.post('/api/users/:_id/exercises', async function(req, res) {
+//console.log(`req.body: ${JSON.stringify(req.body)}`);
+//console.log(`req.params: ${JSON.stringify(req.params)}`);
+//console.log(`req.query: ${JSON.stringify(req.query)}`);
   const id = req.params._id;
   const {description, duration, date} = req.body;
   if (date) {
@@ -252,7 +299,9 @@ app.post('/api/users/:_id/exercises', async function(req, res) {
   }
   const passedDate = Number((date) 
                             ? date.replace(/-/g, '')
-                            : new Date().toISOString().substring(0, 10).replace(/-/g, '')
+                            : new Date().toISOString()
+                                        .substring(0, 10)
+                                        .replace(/-/g, '')
                            );
   const newExercise = new exercise({userid: id,
                                     description: description,
@@ -260,7 +309,7 @@ app.post('/api/users/:_id/exercises', async function(req, res) {
                                     date: passedDate
                                    });
   const error = newExercise.validateSync();
-  if (error !== undefined) {
+  if (error) {
     const errMsg = { '':'Error(s)'};
     if (error && error.errors.userid !== undefined) {
       errMsg.id = error.errors.userid.message;
@@ -287,44 +336,53 @@ app.post('/api/users/:_id/exercises', async function(req, res) {
   const username = userFind.username;
   //Check if exercise in database
   exercise.findOne({userid: id,
-                    description: description
+                    description: description,
+                    duration: duration,
+                    date: passedDate
                    })
           .exec(function(err, exercises) {
             if (err) {
-              res.json({ error: err });
+              return res.json({ error: err });
+            }
+            if (exercises === null) { //not found, so add to database
+              newExercise.save(function(err, data) {
+                if (err) {
+                  return res.json({ error : err });
+                }
+                //turn data.date into formatted string
+                //eg data.date of 20221022 gives
+                //   dd of Fri Oct 22 2202
+                let d = data.date.toString();
+                d = d.substring(0, 4) + '-' +
+                    d.substring(4, 6) + '-' +
+                    d.substring(6, 9);
+                d = new Date(d).toDateString();
+                //display
+                res.json({ username   : username,
+                           description: description,
+                           duration   : data.duration,
+                           date       : d,
+                           _id        : id
+                         });
+              });
             }
             else {
-              if (exercises === null) { //not found
-                //add
-                // newExercise.date = newExercise.date.getTime();
-                // newExercise.date = new Date(new Date(new Date(newExercise.date).toISOString()).setHours(0, 0, 0, 0));
-                newExercise.save(function(err, data) {
-                  if (err) {
-                    res.json({ error : err });
-                  }
-                  else {
-                    //display
-                    let d = data.date.toString();
-                    d = d.substring(0,4)+'-'+d.substring(4,2)+'-'+d.substring(6,2);
-                    d = new Date(d).toDateString();
-                    res.json({ username   : username,
-                               description: description,
-                               duration   : data.duration,
-                               date       : d,
-                               _id        : id
-                             });
-                  }
-                });
-              }
-              else {
-                res.json({ '':'Already in the database',
-                          username    : username,
-                          description : description,
-                          duration    : exercises.duration,
-                          date        : exercises.date.toDateString(),
-                          _id         : id
-                         });
-              }
+              //turn exercises.date into formatted string
+              //eg exercises.date of 20221022 gives
+              //   dd of Fri Oct 22 2202
+              let dd = exercises.date.toString();
+              dd = dd.substring(0, 4) + '-' +
+                   dd.substring(4, 6) + '-' +
+                   dd.substring(6, 9);
+              dd = new Date(dd).toDateString();
+              //display
+              res.json({ '':'Already in the database',
+                         username    : username,
+                         description : description,
+                         duration    : exercises.duration,
+                         date        : dd,
+                        _id         : id
+                       });
             }
           })
 });
